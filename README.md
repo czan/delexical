@@ -2,10 +2,10 @@
 
 A Clojure library that provides closures whose lexical context can be bound at call-time rather than construction-time.
 
-*Yo where my niggas at ?*\
+*Yo where my possee at ?*\
 *In the range of my voice*
 
-[Smoked Out Productions – Bok Bok](https://www.youtube.com/watch?v=U_qoRNHJ_JY)
+[Smoked Out Productions – Bok Bok](https://www.youtube.com/watch?v=AWhehOS23hU&t=4m48s)
 
 ## Usage
 
