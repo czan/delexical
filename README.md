@@ -18,7 +18,7 @@ A Clojure library that provides closures whose lexical context can be bound at c
   (:require [delexical.core :refer [defdelexical]]))
 ```
 
-## [API doc](https://tristefigure.github.io/delexical/index.html)
+## [API doc](https://tristefigure.github.io/delexical/)
 
 ## Current status
 The library as of now is bugged because the way it tracks locals variables to deduce free symbols is not 100% functional. Some additional work needs to be done in [dance](https://github.com/TristeFigure/dance/blob/master/src/dance/core.clj#L144) to fix this. Another approach would be to expose the field tracking locals at the compiler level, namely [`closes`](https://github.com/clojure/clojure/blob/57ac70c904e8250f0bd4e084272659aeeb8749c6/src/jvm/clojure/lang/Compiler.java#L4170). To do this I prepared (but have yet to make use of)
