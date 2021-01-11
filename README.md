@@ -20,6 +20,10 @@ A Clojure library that provides closures whose lexical context can be bound at c
 
 ## [API doc](https://tristefigure.github.io/delexical/index.html)
 
+## Current status
+The library as of now is bugged because the way it tracks locals variables to deduce free symbols is not 100% functional. Some additional work needs to be done in [dance](https://github.com/TristeFigure/dance/blob/master/src/dance/core.clj#L144) to fix this. Another approach would be to expose the field tracking locals at the compiler level, namely [`closes`](https://github.com/clojure/clojure/blob/57ac70c904e8250f0bd4e084272659aeeb8749c6/src/jvm/clojure/lang/Compiler.java#L4170). To do this I prepared (but have yet to make use of)
+[a lib](https://github.com/TristeFigure/shuriken/blob/master/src/shuriken/byte_buddy.clj#L261) that allows one to copy a whole class tree into another package, renaming symbols along the way. One can then [monkey-patch](https://github.com/TristeFigure/shuriken/blob/master/src/shuriken/monkey_patch.clj) this class methods and load them in Clojure's classloader in a fully controlable way, leaving the original Clojure compiler and the rest of the code unchanged.
+
 ## How ?
 
 ```clojure
