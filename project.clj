@@ -5,9 +5,9 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.9.0"]
                  [org.clojars.tristefigure/shuriken "0.14.20"]
-                 [dance "0.2.0-SNAPSHOT"]
+                 [dance "0.1.3"]
                  [threading "0.3.3"]
-                 [lexikon "0.1.0"]]
+                 [lexikon "0.2.1"]]
   :profiles {:dev {:dependencies [[codox-theme-rdash "0.1.2"]]}}
   :plugins [[lein-codox "0.10.3"]]
   :codox {:source-uri "https://github.com/TristeFigure/delexical/" \
