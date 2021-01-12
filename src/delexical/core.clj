@@ -1,71 +1,54 @@
 (ns delexical.core
   (:require [clojure.set :as set]
             [shuriken.core :refer [deconstruct disentangle unwrap-form]]
-            [threading.core :refer :all]
-            [lexikon.core :refer [lexical-context letmap]]
             [dance.core :refer [dance free-symbols-collecting-dance]]))
 
 ;; TODO: does not work for multiple-arities fns
 (defmacro defdelexical
   "Defines a closure-like entity whose lexical context can be set at
   both construction-time and call-time.
-  Any symbol in the delexical body that is free at construction time
-  is expected to be found in the lexical context of the call-site and
-  will be magically passed to the delexical.
 
-  Although symbols bound at construction time cannot be bind again at
-  call-time, it is possible to pass these implicit variables explicitly
-  as additional arguments to the delexical.
+  Any free variables in the definition of a delexical will be looked
+  up in the lexical context of the call-site and transparently bound
+  in the delexical body.
 
-  Although delexicals support destructuring they do not support variadic
-  arguments.
+  Symbols captured by the definition of the delexical at definition
+  time will not be rebound at call-time.
 
   ```clojure
-  (let [d 1000]
-    (defdelexical f [a b]
-      (+ a b c d)))
+  (let [b 10]
+    (defdelexical f [a]
+      (+ a b c)))
 
-  (let [c 100 d 0]
-    (f 1 10)      ;; => 1111
-    (f 1 10 200)) ;; => 1211
+  (let [a 1, b 2, c 3]
+    (f 1)) ;=> 1 + 10 + 3 = 14
+
+  (macroexpand '(f 1)) ;=> (f* c 1)
   ```
 
   Note that a delexical is a macro under the hood. To use it as a
   parameter to a higher order function you will have to wrap it
   inside a function, e.g. `(map #(f 1 %) [1 2 3])`."
   [nme args & body]
-  (let [declared-args (set (deconstruct args))
-        _ (assert (not-> args disentangle :more seq)
-                  "defdelexical does not work with variadic args.")
-        creation-time-env (lexical-context)
-        creation-time-locals (-> creation-time-env keys
-                                 (map->> (unwrap-form 'quote))
-                                 set)
-        already-bound-syms (set/union creation-time-locals
-                                      declared-args)
-        free-vars (dance body
-                         free-symbols-collecting-dance
-                         :context {:bound-sym? already-bound-syms})
-        full-args (vec (concat declared-args free-vars))
-        fn-name (-> nme name (str "*") symbol)
-        limit (count declared-args)
-        uplimit (+ limit (count free-vars))]
+  (let [declared-args  (set (deconstruct args))
+        parsed-args    (disentangle args)
+        arg-vector     (concat (map (fn [_] (gensym 'arg)) (:items parsed-args))
+                               (when (:more parsed-args)
+                                 ['& (gensym 'rest)]))
+        arg-names      (remove #(= % '&) arg-vector)
+        [expanded ctx] (dance `(do ~@body)
+                              free-symbols-collecting-dance
+                              :return :form-and-context)
+        free-vars      (set/difference (set (:free-symbols ctx))
+                                       declared-args
+                                       (-> &env keys set))
+        fn-name        (-> nme name (str "*") symbol)]
     `(do
-       (defn ~fn-name ~full-args
-         ~@body)
-       (defmacro ~nme [& args#]
-         (let [args-cnt# (count args#)]
-           (assert (>= args-cnt# ~limit)
-                   (str "Missing explicit args when calling delexical " '~nme
-                        " (expected " ~limit ", got " args-cnt# " instead)"))
-           (assert (<= args-cnt# ~uplimit)
-                   (str "Too many args when calling delexical " '~nme
-                        " (expected " ~uplimit ", got " args-cnt# " instead)")))
-         (let [[~'declared ~'implicit] (map vec
-                                            (split-at ~limit args#))
-               ~'missing-implicit (vec (drop (count ~'implicit)
-                                             '~free-vars))]
-           `(letmap ~~creation-time-env
-              (apply ~'~fn-name (concat ~~'declared
-                                        ~~'implicit
-                                        ~~'missing-implicit))))))))
+       (defn ~fn-name [~@free-vars ~@args]
+         ~expanded)
+       (defmacro ~nme
+         {:arglists '[~args]}
+         [~@arg-vector]
+         ~(if (:more parsed-args)
+            `(list* '~fn-name ~@(map #(list 'quote %) free-vars) ~@arg-names)
+            `(list '~fn-name ~@(map #(list 'quote %) free-vars) ~@arg-names))))))

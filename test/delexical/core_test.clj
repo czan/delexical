@@ -1,77 +1,95 @@
 (ns delexical.core-test
   (:require [clojure.test :refer :all]
-            [shuriken.core :refer [thrown? with-ns]]
-            [delexical.core :refer :all]
-            [lexikon.core :refer [lexical-eval]]))
+            [delexical.core :refer :all]))
 
-(defdelexical f [a b]
-  (+ a b c d))
+;; A custom assertion type, to let me use `are` and have the tests
+;; play nicely with the test.check infrastructure
+(defmethod assert-expr 'check-delexical-result [msg assertion]
+  (let [[_ form type result] assertion]
+    (cond
+      (= type '=throws>) (assert-expr nil (list 'thrown-with-msg? Exception result form))
+      (= type '=>)       (assert-expr nil (list '= result form))
+      :else              (throw (ex-info "Unknown assertion type"
+                                         {:type   type
+                                          :form   form
+                                          :result result})))))
 
-(let [d 4]
-  (defdelexical ff [a b]
+
+(defdelexical no-closure [a]
+  (+ a b c))
+
+(let [b 2]
+  (defdelexical yes-closure [a]
     (+ a b c d)))
 
-(defdelexical fff [a b]
-    (str a b
-         (str c (str d))
-         (str e)))
+(defdelexical varargs [& xs]
+  (apply + a b xs))
 
-(defmacro miss? [sym expr]
-  `(thrown?
-     #(->> % .getMessage
-           (re-find (re-pattern
-                      (format "Unable to resolve symbol: %s in this context"
-                              ~sym))))
-     ~expr))
+(deftest no-closure-and-no-lexical-environment
+  (binding [*ns* (find-ns 'delexical.core-test)]
+    (are [form type result] (check-delexical-result (eval 'form) type result)
+      (no-closure)     =throws> #"Wrong number of args"
+      (no-closure 1)   =throws> #"Unable to resolve symbol: (b|c) in this context"
+      (no-closure 1 2) =throws> #"Wrong number of args")))
 
-(deftest test-call-delexical
-  (with-ns 'delexical.core-test
-    (let [m #"Missing explicit args when calling delexical"
-          w #"Too many args when calling delexical ff"]
-      (testing "when the construction site has no lexical context"
-        (testing "when the call site has no lexical context"
-          (is (true? (thrown? m (eval '(macroexpand '(f))))))
-          (is (true? (thrown? m (eval '(macroexpand '(f 1))))))
-          (is (true? (miss?  'c (eval '(f 1 2)))))
-          (is (true? (miss?  'd (eval '(f 1 2 3)))))
-          (is (= 10 (eval '(f 1 2 3 4)))))
-        (testing "when the call site has a pertinent lexical context"
-          (let [c 3]
-            (is (true? (thrown? m (lexical-eval '(macroexpand '(f))))))
-            (is (true? (thrown? m (lexical-eval '(macroexpand '(f 1))))))
-            (is (true? (miss? 'd (lexical-eval '(f 1 2)))))
-            (is (true? (miss? 'd (lexical-eval '(f 1 2 3)))))
-            (is (= 10 (lexical-eval '(f 1 2 3 4)))))
-          (let [d 4]
-            (is (true? (thrown? m (lexical-eval '(macroexpand '(f))))))
-            (is (true? (thrown? m (lexical-eval '(macroexpand '(f 1))))))
-            (is (true? (miss? 'c (lexical-eval '(f 1 2)))))
-            (is (= 10 (lexical-eval '(f 1 2 3))))
-            (is (= 10 (lexical-eval '(f 1 2 3 4)))))
-          (let [c 3 d 4]
-            (is (true? (thrown? m (lexical-eval '(macroexpand '(f))))))
-            (is (true? (thrown? m (lexical-eval '(macroexpand '(f 1))))))
-            (is (= 10 (lexical-eval '(f 1 2))))
-            (is (= 10 (lexical-eval '(f 1 2 3))))
-            (is (= 10 (lexical-eval '(f 1 2 3 4)))))))
-      (testing "when the construction site has a pertinent lexical context"
-        (testing "when the call site has no lexical context"
-          (is (true? (thrown? m (eval '(ff)))))
-          (is (true? (thrown? m (eval '(ff 1)))))
-          (is (true? (miss?  'c (eval '(ff 1 2)))))
-          (is (= 107 (eval '(ff 1 2 100))))
-          (is (true? (thrown? w (eval '(ff 1 2 100 1000))))))
-        (testing "when the call site has a pertinent lexical context"
-          (let [c 3]
-            (is (true? (thrown? m (lexical-eval '(macroexpand '(ff))))))
-            (is (true? (thrown? m (lexical-eval '(macroexpand '(ff 1))))))
-            (is (= 10  (lexical-eval '(ff 1 2))))
-            (is (= 107 (lexical-eval '(ff 1 2 100))))
-            (is (true? (thrown? w (lexical-eval '(ff 1 2 100 1000)))))
-            (testing "creation-time bound syms cannot be rebound at call-time"
-              (let [d 1000]
-                (is (= 10 (lexical-eval '(ff 1 2)))))))))
-      (testing "with multiple free symbols"
-        (testing "can bind them at call-time by passing them in pre-order."
-          (let [e "e"]
-            (is (= "abcde" (fff "a" "b" "c" "d")))))))))
+(deftest no-closure-and-relevant-lexical-environment
+  (binding [*ns* (find-ns 'delexical.core-test)]
+    (are [form type result] (check-delexical-result (eval 'form) type result)
+      (let [b 2] (no-closure))          =throws> #"Wrong number of args"
+      (let [b 2] (no-closure 1))        =throws> #"Unable to resolve symbol: c in this context"
+      (let [b 2] (no-closure 1 2))      =throws> #"Wrong number of args"
+      (let [c 3] (no-closure))          =throws> #"Wrong number of args"
+      (let [c 3] (no-closure 1))        =throws> #"Unable to resolve symbol: b in this context"
+      (let [c 3] (no-closure 1 2))      =throws> #"Wrong number of args"
+      (let [b 2, c 3] (no-closure))     =throws> #"Wrong number of args"
+      (let [b 2, c 3] (no-closure 1))   =>       6
+      (let [b 2, c 3] (no-closure 1 2)) =throws> #"Wrong number of args")))
+
+
+(deftest yes-closure-and-no-lexical-environment
+  (binding [*ns* (find-ns 'delexical.core-test)]
+    (are [form type result] (check-delexical-result (eval 'form) type result)
+      (yes-closure)     =throws> #"Wrong number of args"
+      (yes-closure 1)   =throws> #"Unable to resolve symbol: (c|d) in this context"
+      (yes-closure 1 2) =throws> #"Wrong number of args")))
+
+(deftest yes-closure-and-relevant-lexical-environment
+  (binding [*ns* (find-ns 'delexical.core-test)]
+    (are [form type result] (check-delexical-result (eval 'form) type result)
+      (let [c 3] (yes-closure))          =throws> #"Wrong number of args"
+      (let [c 3] (yes-closure 1))        =throws> #"Unable to resolve symbol: d in this context"
+      (let [c 3] (yes-closure 1 2))      =throws> #"Wrong number of args"
+      (let [d 4] (yes-closure))          =throws> #"Wrong number of args"
+      (let [d 4] (yes-closure 1))        =throws> #"Unable to resolve symbol: c in this context"
+      (let [d 4] (yes-closure 1 2))      =throws> #"Wrong number of args"
+      (let [c 3, d 4] (yes-closure))     =throws> #"Wrong number of args"
+      (let [c 3, d 4] (yes-closure 1))   =>       10
+      (let [c 3, d 4] (yes-closure 1 2)) =throws> #"Wrong number of args")))
+
+(deftest varargs-and-no-lexical-environment
+  (binding [*ns* (find-ns 'delexical.core-test)]
+    (are [form type result] (check-delexical-result (eval 'form) type result)
+      (varargs)   =throws> #"Unable to resolve symbol: (a|b) in this context"
+      (varargs 1) =throws> #"Unable to resolve symbol: (a|b) in this context")))
+
+(deftest varargs-and-relevant-lexical-environment
+  (binding [*ns* (find-ns 'delexical.core-test)]
+    (are [form type result] (check-delexical-result (eval 'form) type result)
+      (let [a 1] (varargs))        =throws> #"Unable to resolve symbol: b in this context"
+      (let [a 1] (varargs 1))      =throws> #"Unable to resolve symbol: b in this context"
+      (let [b 2] (varargs))        =throws> #"Unable to resolve symbol: a in this context"
+      (let [b 2] (varargs 1))      =throws> #"Unable to resolve symbol: a in this context"
+      (let [a 1, b 2] (varargs))   =>       3
+      (let [a 1, b 2] (varargs 1)) =>       4)))
+
+
+(def ^:dynamic *expansions*)
+(defmacro count-expansion []
+  (set! *expansions* (inc *expansions*))
+  nil)
+(deftest definition-only-macroexpands-once
+  (binding [*ns* (find-ns 'delexical.core-test)
+            *expansions* 0]
+    (eval '(defdelexical expansion-counting-delexical []
+             (count-expansion)))
+    (is (= 1 *expansions*))))
